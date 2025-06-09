@@ -1,0 +1,4 @@
+chainlit==2.4.0
+anthropic
+asyncpg
+boto3
