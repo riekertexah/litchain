@@ -3,13 +3,13 @@ from mcp import ClientSession
 import anthropic
 import chainlit as cl
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 from yarl import URL
+from abc import ABC, abstractmethod
+import tiktoken
 
-# Initialize Anthropic client
-anthropic_client = anthropic.AsyncAnthropic()
+# DECLARATIONS
 
-# Generic system prompt for MCP-enabled assistant
 SYSTEM = """You are a helpful AI assistant with access to various tools through the Model Context Protocol (MCP).
 You can use these tools to help users accomplish their tasks. When using tools:
 1. Explain what you're doing before using a tool
@@ -17,6 +17,8 @@ You can use these tools to help users accomplish their tasks. When using tools:
 3. Handle tool results appropriately
 4. Continue the conversation naturally after tool use"""
 
+
+# AUTHENTICATION
 
 async def get_user_facing_url(url: URL):
     """
@@ -47,7 +49,7 @@ async def get_user_facing_url(url: URL):
     return config_url_path + url_path
 
 @cl.password_auth_callback
-def auth_callback(username: str, password: str):
+async def auth_callback(username: str, password: str):
     # Fetch the user matching username from your database
     # and compare the hashed password with the value stored in the database
     if (username, password) == ("admin", "admin"):
@@ -64,12 +66,14 @@ async def oauth_callback(provider_id: str, token: str, raw_user_data: Dict[str, 
             return default_user
     return None
 
+# CHAT START
+
 @cl.on_chat_start
 async def start_chat():
     """Initialize the chat session."""
-    # Get the current user
+    await clear_user_session_mcp_tools()
     user = cl.user_session.get("user")
-    print(user)
+
     if user:
         # Check if user's email is from exah.co.za
         email = user.identifier if hasattr(user, 'identifier') else "anonymous"
@@ -77,27 +81,21 @@ async def start_chat():
             content=f"Welcome {email}! How can I help you today?"
         ).send()
     cl.user_session.set("chat_messages", [])
-    print(f"Chat session started for user: {email if user else 'anonymous'}")
+    # print(f"Chat session started for user: {email if user else 'anonymous'}")
+
+# CHAT RESUME
 
 @cl.on_chat_resume
 async def on_chat_resume(thread):
-    pass
+    await clear_user_session_mcp_tools()
 
-@cl.oauth_callback
-def oauth_callback(
-    provider_id: str,
-    token: str,
-    raw_user_data: Dict[str, str],
-    default_user: cl.User,
-) -> Optional[cl.User]:
-    if provider_id == "google":
-        if raw_user_data["hd"] == "exah.co.za":
-            return default_user
-    return None
+# CHAT STOP
 
-def flatten(xss):
-    """Flatten a list of lists."""
-    return [x for xs in xss for x in xs]
+@cl.on_stop
+async def on_stop():
+    print("The user wants to stop the task!")
+
+# MCP CONFIG
 
 @cl.on_mcp_connect
 async def on_mcp(connection, session: ClientSession):
@@ -116,10 +114,21 @@ async def on_mcp(connection, session: ClientSession):
         mcp_tools[connection.name] = tools
         cl.user_session.set("mcp_tools", mcp_tools)
         
-        print(f"Connected to MCP: {connection.name}")
-        print(f"Available tools: {[t['name'] for t in tools]}")
+        # print(f"Connected to MCP: {connection.name}")
+        # print(f"Available tools: {[t['name'] for t in tools]}")
     except Exception as e:
         print(f"Error connecting to MCP {connection.name}: {str(e)}")
+
+@cl.on_mcp_disconnect
+async def on_mcp_disconnect(connection, session: ClientSession):
+    """Handle MCP disconnection."""
+    await clear_user_session_mcp_tools()
+    
+
+async def clear_user_session_mcp_tools():
+    """Clear all MCP tools from the user session."""
+    cl.user_session.set("mcp_tools", {})
+    cl.user_session.set("mcp_tools_count", 0)
 
 @cl.step(type="tool")
 async def call_tool(tool_use):
@@ -158,21 +167,123 @@ async def call_tool(tool_use):
         error_msg = f"Error executing tool {tool_name}: {str(e)}"
         current_step.output = json.dumps({"error": error_msg})
         return current_step.output
+    
+def flatten(xss):
+    """Flatten a list of lists."""
+    return [x for xs in xss for x in xs]
 
-async def call_claude(chat_messages):
+# LLM CONFIG AND MANAGEMENT
+
+class LLMContextManager(ABC):
+    """Abstract base class for LLM context management"""
+    @abstractmethod
+    def count_tokens(self, messages: List[Dict[str, Any]], system_prompt: str = "") -> int:
+        """Count tokens for a list of messages and system prompt"""
+        pass
+    
+    @abstractmethod
+    def count_tool_tokens(self, tools: List[Dict[str, Any]]) -> int:
+        """Count tokens for tool definitions"""
+        pass
+    
+    @abstractmethod
+    def get_max_tokens(self) -> int:
+        """Get maximum tokens for this LLM"""
+        pass
+
+class ClaudeContextManager(LLMContextManager):
+    def __init__(self, model: str = "claude-3-5-sonnet-20240620"):
+        self.model = model
+        self.encoding = tiktoken.get_encoding("cl100k_base")
+        # Reserve some tokens for response
+        self.max_tokens = 200000 - 1024  # Claude's max - response tokens
+    
+    def count_tokens(self, messages: List[Dict[str, Any]], system_prompt: str = "") -> int:
+        total_tokens = 0
+        # Count system prompt tokens
+        if system_prompt:
+            total_tokens += len(self.encoding.encode(system_prompt))
+        
+        # Count message tokens
+        for message in messages:
+            if isinstance(message["content"], str):
+                total_tokens += len(self.encoding.encode(message["content"]))
+            elif isinstance(message["content"], list):
+                for item in message["content"]:
+                    if isinstance(item, dict) and "content" in item:
+                        total_tokens += len(self.encoding.encode(str(item["content"])))
+        return total_tokens
+    
+    def count_tool_tokens(self, tools: List[Dict[str, Any]]) -> int:
+        total_tokens = 0
+        for tool in tools:
+            # Count tool name
+            total_tokens += len(self.encoding.encode(tool["name"]))
+            # Count tool description
+            total_tokens += len(self.encoding.encode(tool["description"]))
+            # Count tool schema
+            total_tokens += len(self.encoding.encode(str(tool["input_schema"])))
+        return total_tokens
+    
+    def get_max_tokens(self) -> int:
+        return self.max_tokens
+
+class ContextWindowManager:
+    def __init__(self, llm_manager: LLMContextManager):
+        self.llm_manager = llm_manager
+    
+    def get_relevant_messages(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], system_prompt: str = "") -> List[Dict[str, Any]]:
+        """Get messages that fit within the context window, considering tools and system prompt"""
+        relevant_messages = []
+        current_tokens = 0
+        max_tokens = self.llm_manager.get_max_tokens()
+        
+        # Count system prompt and tools first
+        current_tokens += self.llm_manager.count_tokens([], system_prompt)
+        current_tokens += self.llm_manager.count_tool_tokens(tools)
+        
+        print(f"\n=== Token Usage ===")
+        print(f"System prompt tokens: {self.llm_manager.count_tokens([], system_prompt)}")
+        print(f"Tools tokens: {self.llm_manager.count_tool_tokens(tools)}")
+        print(f"Remaining tokens for messages: {max_tokens - current_tokens}")
+        
+        # Start with most recent messages
+        for message in reversed(messages):
+            message_tokens = self.llm_manager.count_tokens([message])
+            if current_tokens + message_tokens > max_tokens:
+                print(f"Stopping at message with {message_tokens} tokens (would exceed limit)")
+                break
+            relevant_messages.insert(0, message)
+            current_tokens += message_tokens
+            print(f"Added message with {message_tokens} tokens. Total: {current_tokens}")
+        
+        print(f"Final token count: {current_tokens}/{max_tokens}")
+        return relevant_messages
+
+# INITIALIZE
+
+anthropic_client = anthropic.AsyncAnthropic()
+
+# Initialize context window manager
+context_window = ContextWindowManager(ClaudeContextManager())
+
+# LLM CALLS
+
+async def call_claude(chat_messages, tools):
     """Call Claude with the current conversation context and available tools."""
     msg = cl.Message(content="")
     
-    # Get all available tools from MCP connections
-    mcp_tools = cl.user_session.get("mcp_tools", {})
-    tools = flatten([tools for _, tools in mcp_tools.items()])
-    
-    print(f"Available tools for Claude: {[tool.get('name') for tool in tools]}")
+    # Get relevant messages considering tools and system prompt
+    relevant_messages = context_window.get_relevant_messages(
+        messages=chat_messages,
+        tools=tools,
+        system_prompt=SYSTEM
+    )
     
     async with anthropic_client.messages.stream(
         system=SYSTEM,
         max_tokens=1024,
-        messages=chat_messages,
+        messages=relevant_messages,
         tools=tools,
         model="claude-3-5-sonnet-20240620",
     ) as stream:
@@ -180,16 +291,7 @@ async def call_claude(chat_messages):
             await msg.stream_token(text)
     
     await msg.send()
-    return await stream.get_final_message()
-
-@cl.on_message
-async def on_message(msg: cl.Message):
-    """Handle incoming messages and tool execution."""
-    chat_messages = cl.user_session.get("chat_messages")
-    chat_messages.append({"role": "user", "content": msg.content})
-    
-    # Get initial response from Claude
-    response = await call_claude(chat_messages)
+    response = await stream.get_final_message()
     
     # Handle tool use if needed
     while response.stop_reason == "tool_use":
@@ -210,15 +312,23 @@ async def on_message(msg: cl.Message):
                 ],
             },
         ]
+        
+        # Recursive call with new messages
+        response = await call_claude(messages, tools)
+    
+    return response
 
-        chat_messages.extend(messages)
-        response = await call_claude(chat_messages)
+# CHAT MESSAGE CHAINLIT (MAIN ROUTE)
 
-    # Get final response text
-    final_response = next(
-        (block.text for block in response.content if hasattr(block, "text")),
-        None,
-    )
+@cl.on_message
+async def on_message(msg: cl.Message):
+    # Get all messages in OpenAI format automatically
+    chat_messages = cl.chat_context.to_openai()
+    
+    # Get all available tools from MCP connections
+    await clear_user_session_mcp_tools()
+    mcp_tools = cl.user_session.get("mcp_tools", {})
+    tools = flatten([tools for _, tools in mcp_tools.items()])
+    
+    response = await call_claude(chat_messages, tools)
 
-    # Update conversation history
-    chat_messages.append({"role": "assistant", "content": final_response})

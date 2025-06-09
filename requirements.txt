@@ -1,4 +1,6 @@
 chainlit==2.4.0
-anthropic
-asyncpg
-boto3
+anthropic>=0.52.2
+asyncpg>=0.30.0
+boto3>=1.38.32
+yarl>=1.9.4
+tiktoken>=0.6.0
