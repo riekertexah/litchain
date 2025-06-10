@@ -61,33 +61,31 @@ async def auth_callback(username: str, password: str):
 
 @cl.oauth_callback
 async def oauth_callback(provider_id: str, token: str, raw_user_data: Dict[str, str], default_user: cl.User) -> Optional[cl.User]:
-    if provider_id == "google":
-        if raw_user_data.get("hd") == "exah.co.za":
-            return default_user
-    return None
+    # if provider_id == "google":
+    #     if raw_user_data.get("hd") == "exah.co.za":
+    #         return default_user
+    return default_user
 
 # CHAT START
 
 @cl.on_chat_start
 async def start_chat():
     """Initialize the chat session."""
-    await clear_user_session_mcp_tools()
     user = cl.user_session.get("user")
 
     if user:
         # Check if user's email is from exah.co.za
         email = user.identifier if hasattr(user, 'identifier') else "anonymous"
         await cl.Message(
-            content=f"Welcome {email}! How can I help you today?"
+            content=f"Welcome to LitChain {email}! Get it, because I am built on Chainlit but in my case it's extra lit... anyways. How can I help you today?"
         ).send()
     cl.user_session.set("chat_messages", [])
-    # print(f"Chat session started for user: {email if user else 'anonymous'}")
 
 # CHAT RESUME
 
 @cl.on_chat_resume
 async def on_chat_resume(thread):
-    await clear_user_session_mcp_tools()
+    pass
 
 # CHAT STOP
 
@@ -113,22 +111,21 @@ async def on_mcp(connection, session: ClientSession):
         mcp_tools = cl.user_session.get("mcp_tools", {})
         mcp_tools[connection.name] = tools
         cl.user_session.set("mcp_tools", mcp_tools)
-        
-        # print(f"Connected to MCP: {connection.name}")
-        # print(f"Available tools: {[t['name'] for t in tools]}")
+
     except Exception as e:
         print(f"Error connecting to MCP {connection.name}: {str(e)}")
 
 @cl.on_mcp_disconnect
 async def on_mcp_disconnect(connection, session: ClientSession):
     """Handle MCP disconnection."""
-    await clear_user_session_mcp_tools()
-    
-
-async def clear_user_session_mcp_tools():
-    """Clear all MCP tools from the user session."""
-    cl.user_session.set("mcp_tools", {})
-    cl.user_session.set("mcp_tools_count", 0)
+    try:
+        # Remove tools for this MCP connection from user session
+        mcp_tools = cl.user_session.get("mcp_tools", {})
+        if connection in mcp_tools:
+            del mcp_tools[connection]
+            cl.user_session.set("mcp_tools", mcp_tools)
+    except Exception as e:
+        print(f"Error disconnecting from MCP {connection}: {str(e)}")
 
 @cl.step(type="tool")
 async def call_tool(tool_use):
@@ -326,7 +323,6 @@ async def on_message(msg: cl.Message):
     chat_messages = cl.chat_context.to_openai()
     
     # Get all available tools from MCP connections
-    await clear_user_session_mcp_tools()
     mcp_tools = cl.user_session.get("mcp_tools", {})
     tools = flatten([tools for _, tools in mcp_tools.items()])
     
