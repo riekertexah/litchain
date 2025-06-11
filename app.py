@@ -66,32 +66,43 @@ async def oauth_callback(provider_id: str, token: str, raw_user_data: Dict[str, 
     #         return default_user
     return default_user
 
+# LOGOUT
+@cl.on_logout
+async def on_logout():
+    cl.user_session.clear()
+
 # CHAT START
 
 @cl.on_chat_start
 async def start_chat():
     """Initialize the chat session."""
+    # Get all default Chainlit session data plus our custom data
+    session_data = {
+        # Default Chainlit session data
+        "id": cl.user_session.get("id"),
+        "user": cl.user_session.get("user"),
+        "chat_profile": cl.user_session.get("chat_profile"),
+        "chat_settings": cl.user_session.get("chat_settings"),
+        "env": cl.user_session.get("env"),
+        
+        # Our custom session data
+        "chat_messages": cl.user_session.get("chat_messages"),
+        "mcp_tools": cl.user_session.get("mcp_tools")
+    }
+    print("Session data:", session_data)
+    
     user = cl.user_session.get("user")
-
     if user:
-        # Check if user's email is from exah.co.za
-        email = user.identifier if hasattr(user, 'identifier') else "anonymous"
+        email = user.identifier if hasattr(user, 'identifier') else "LitFam"
         await cl.Message(
             content=f"Welcome to LitChain {email}! Get it, because I am built on Chainlit but in my case it's extra lit... anyways. How can I help you today?"
         ).send()
-    cl.user_session.set("chat_messages", [])
 
 # CHAT RESUME
 
 @cl.on_chat_resume
 async def on_chat_resume(thread):
     pass
-
-# CHAT STOP
-
-@cl.on_stop
-async def on_stop():
-    print("The user wants to stop the task!")
 
 # MCP CONFIG
 
