@@ -8,6 +8,7 @@ from yarl import URL
 from abc import ABC, abstractmethod
 import tiktoken
 
+
 # DECLARATIONS
 
 SYSTEM = """You are a helpful AI assistant with access to various tools through the Model Context Protocol (MCP).
@@ -71,7 +72,7 @@ async def oauth_callback(provider_id: str, token: str, raw_user_data: Dict[str, 
 async def on_logout():
     cl.user_session.clear()
 
-# CHAT START
+# # CHAT START
 
 @cl.on_chat_start
 async def start_chat():

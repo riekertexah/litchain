@@ -1,6 +1,8 @@
-chainlit==2.4.0
 anthropic>=0.52.2
+
 asyncpg>=0.30.0
 boto3>=1.38.32
 yarl>=1.9.4
 tiktoken>=0.6.0
+
+./chainlit-2.5.5-cp312-cp312-macosx_15_0_arm64.whl
