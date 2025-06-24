@@ -67,7 +67,7 @@ EOF
 sudo ln -s /etc/nginx/sites-available/litchain /etc/nginx/sites-enabled/
 sudo rm /etc/nginx/sites-enabled/default
 
-# Create systemd service with data layer configuration
+# Create systemd service
 sudo tee /etc/systemd/system/litchain.service << EOF
 [Unit]
 Description=LitChain Application
@@ -78,12 +78,6 @@ User=ubuntu
 WorkingDirectory=/var/www/litchain
 Environment="PATH=/var/www/litchain/venv/bin"
 Environment="CHAINLIT_URL=https://localhost"
-Environment="DATABASE_URL=postgresql://root:root@DATALAYER_IP:5432/postgres?sslmode=require&sslcert=/var/www/litchain/ssl/postgres.crt&sslkey=/var/www/litchain/ssl/postgres.key&sslrootcert=/var/www/litchain/ssl/postgres.crt"
-Environment="BUCKET_NAME=my-bucket"
-Environment="APP_AWS_ACCESS_KEY=random-key"
-Environment="APP_AWS_SECRET_KEY=random-key"
-Environment="APP_AWS_REGION=eu-central-1"
-Environment="DEV_AWS_ENDPOINT=http://DATALAYER_IP:4566"
 ExecStart=/var/www/litchain/venv/bin/chainlit run app.py
 Restart=always
 
