@@ -4,3 +4,5 @@ asyncpg>=0.30.0
 boto3>=1.38.32
 yarl>=1.9.4
 tiktoken>=0.6.0
+
+./chainlit-2.5.5+lc-py3-none-any.whl
