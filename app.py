@@ -7,17 +7,19 @@ from typing import Dict, Optional, List, Any
 from yarl import URL
 from abc import ABC, abstractmethod
 import tiktoken
-
+from datetime import date
 
 # DECLARATIONS
 
-SYSTEM = """You are a helpful AI assistant with access to various tools through the Model Context Protocol (MCP).
-You can use these tools to help users accomplish their tasks. When using tools:
-1. Explain what you're doing before using a tool
-2. Use the most appropriate tool for the task
-3. Handle tool results appropriately
-4. Continue the conversation naturally after tool use"""
-
+today = date.today()
+SYSTEM = (
+    f"You are a helpful AI assistant with access to various tools through the Model Context Protocol (MCP). Today's date is {today}\n"
+    "You can use these tools to help users accomplish their tasks. When using tools:\n"
+    "1. Explain what you're doing before using a tool\n"
+    "2. Use the most appropriate tool for the task\n"
+    "3. Handle tool results appropriately\n"
+    "4. Continue the conversation naturally after tool use"
+)
 
 # AUTHENTICATION
 
