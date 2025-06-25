@@ -13,7 +13,8 @@ from datetime import date
 
 today = date.today()
 SYSTEM = (
-    f"You are a helpful AI assistant with access to various tools through the Model Context Protocol (MCP). Today's date is {today}\n"
+    f"You are a helpful AI assistant. The current real-world date is {today}. "
+    "Always use this as the actual date when answering questions."
     "You can use these tools to help users accomplish their tasks. When using tools:\n"
     "1. Explain what you're doing before using a tool\n"
     "2. Use the most appropriate tool for the task\n"
